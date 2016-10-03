@@ -24,7 +24,6 @@ MAINTAINER Jason Charcalla
 
 RUN apt-get update && apt-get install -y bc \
 ffmpeg \
-imagemagick \
 sox \
 hugin \
 && rm -rf /var/lib/apt/lists/*

@@ -14,7 +14,7 @@
 #
 
 print_usage() {
-        cat <<EOF
+cat <<EOF
 #
 # equirectangular stereoscopic video creator
 #
@@ -67,16 +67,12 @@ print_usage() {
 # -f Temporary file format ?? maybe jpg or tif
 
 #
-# ./create-3d-video.sh -K 4k -F 30 -V 235 -l left.MP4 -r right.MP4 -Y 180 -P 30 -R 0 -I /mnt/3d_wedding_test/ -O /mnt/3d_wedding_test/3
+# ./create-3d-video.sh -K 4k -V 235 -l left.MP4 -r right.MP4 -Y 180 -P 30 -R 0 -I < input path > -O < output mp4 file >
 d_wedding_test.mp4
 #
 # Docker usage:
 # This container requires a rw mount point which contains images
 #
-# Produce a slide show
-####sudo docker run -v /mnt/:/mnt timelapse.1 -R 2k -F 15 -D 10 -C black -T 3 -I /mnt/test01/ -O /mnt/test.mp4 -E JPG
-# Produce a timelapse
-####sudo docker run -v /mnt/:/mnt timelapse.1 -R 2k -F 15 -D 0 -C black -T 0 -I /mnt/test01/ -O /mnt/test.mp4 -E JPG
 #
 EOF
 exit 1
@@ -109,54 +105,54 @@ FRAME_CUR="0"
 START_TIME=$(date +%s)
 
 if [ "$#" -le 4 ]; then
-            print_usage
+    print_usage
 fi
 
 while getopts h?K:F:r:l:f:V:Y:P:R:I:O:p:s:d:m:c: arg ; do
-        case $arg in
-        K) IMG_RESOLUTION=$OPTARG;;
-        F) FRAME_RATE=$OPTARG;;
-        r) RIGHT_VID=$OPTARG;;
-        l) LEFT_VID=$OPTARG;;
-	f) TMP_FRMT=$OPTARG;;
-	V) CAM_FOV=$OPTARG;;
-	Y) MOD_YAW=$OPTARG;;
-	P) MOD_PITCH=$OPTARG;;
-	R) MOD_ROLL=$OPTARG;;
-	p) PTO_FILE=$OPTARG
-	USER_PTO="1";;
-	s) if [ $OPTARG == "n" ]
+case $arg in
+K) IMG_RESOLUTION=$OPTARG;;
+F) FRAME_RATE=$OPTARG;;
+r) RIGHT_VID=$OPTARG;;
+l) LEFT_VID=$OPTARG;;
+f) TMP_FRMT=$OPTARG;;
+V) CAM_FOV=$OPTARG;;
+Y) MOD_YAW=$OPTARG;;
+P) MOD_PITCH=$OPTARG;;
+R) MOD_ROLL=$OPTARG;;
+p) PTO_FILE=$OPTARG
+USER_PTO="1";;
+s) if [ $OPTARG == "n" ]
+    then
+      echo "Video sync disabled"	
+      SYNC_VID="0"
+    else
+      echo "Error: Invalid -s option. Accept y/n only."
+      exit 1;
+    fi;;
+D) if [ ${SYNC_VID} -eq "1" ]
+   then 
+	if [ $OPTARG == "n" ]
 	    then
-	      echo "Video sync disabled"	
-	      SYNC_VID="0"
-      	    else
-	      echo "Error: Invalid -s option. Accept y/n only."
+	      DELAY_VID="0"
+	    elif [ $OPTARG == "y" ]
+	    then
+	      DELAY_VID="1"
+	    else
+	      echo "Error: Invalid -D option. Accept y/n only."
 	      exit 1;
-	    fi;;
-    	D) if [ ${SYNC_VID} -eq "1" ]
-    	   then 
-       		if [ $OPTARG == "n" ]
-		    then
-		      DELAY_VID="0"
-		    elif [ $OPTARG == "y" ]
-		    then
-		      DELAY_VID="1"
-		    else
-		      echo "Error: Invalid -D option. Accept y/n only."
-		      exit 1;
-		    fi
-		   else
-		     echo "Error: -D requires -s y"
-		     exit 1;
-		   fi;;
-        I) IN_PATH=$OPTARG;;
-        O) OUTPUT=$OPTARG;;
-        d) DEBUG=$OPTARG;;
-        c) CP_DETECTOR=$OPTARG;;
-	m) FRAME_ADJ=$OPTARG
-	   MAN_ADJ="1";;
-        h|\?) print_usage; exit ;;
-        esac
+	    fi
+	   else
+	     echo "Error: -D requires -s y"
+	     exit 1;
+	   fi;;
+I) IN_PATH=$OPTARG;;
+O) OUTPUT=$OPTARG;;
+d) DEBUG=$OPTARG;;
+c) CP_DETECTOR=$OPTARG;;
+m) FRAME_ADJ=$OPTARG
+   MAN_ADJ="1";;
+h|\?) print_usage; exit ;;
+esac
 done
 
 
