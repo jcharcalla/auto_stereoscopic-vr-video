@@ -70,7 +70,6 @@ cat <<EOF
 
 #
 # ./create-3d-video.sh -K 4k -V 235 -l left.MP4 -r right.MP4 -Y 180 -P 30 -R 0 -I < input path > -O < output mp4 file >
-d_wedding_test.mp4
 #
 # Docker usage:
 # This container requires a rw mount point which contains images
