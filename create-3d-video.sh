@@ -57,7 +57,9 @@ cat <<EOF
 #    This is helpful as alignent of the horizon is key in stereoscopic video. 
 # -D Delay start, this is to trim the 1st x seconds from both clips. This way you can 
 #    clap or make some loud noise for use in 1st 10 seconds for syncronization.
-# -m Manual frame sync offset, 
+# -m Manual frame sync offset, in the form of -m <L|R><frame count>. This means if
+#    left frame 0 matches right frame 5 you would use -m R5. Audio from the side that
+#    starts with zero will be used.
 # -c Control point detection method, sift or cpfind. NOTE: this only works if you 
 #    manually modify the docker file to build sift. Default is cpfind.
 
@@ -73,7 +75,11 @@ d_wedding_test.mp4
 # Docker usage:
 # This container requires a rw mount point which contains images
 #
+## create a pto fiile for inspection in hugin. pto file will be in <input path>/tmp along with tiff and wav files. Remove "-d y" to proccess video.
+#  sudo docker run -v /mnt/tmp/:/mnt stereoscopic-v3 -K 4k -V 235 -s n -l left.MP4 -r right.MP4 -Y 180 -P "-14" -I <input path> -O <output path> -d y
 #
+
+
 EOF
 exit 1
 }
@@ -91,16 +97,12 @@ MOD_PITCH="0"
 MOD_ROLL="0"
 THREADS="3"
 USER_PTO="0"
-# temp directories
-WORK_PATH="${IN_PATH}tmp/"
-LEFT_TMP="${IN_PATH}tmp/left/"
-RIGHT_TMP="${IN_PATH}tmp/right/"
-# we should check that /dev/shm isnt full!
-TIF_TMP="/dev/shm/3d_temp/"
 # Location of ffmpeg binary, I think were going to need to use the static build in the container.
 FFMPEG_BIN="/mnt/ffmpeg/ffmpeg-3.1.3-64bit-static/ffmpeg"
 SIFT_BIN="/"
 FRAME_CUR="0"
+DELAY_VID="0"
+MAN_ADJ="0"
 # some timing variables
 START_TIME=$(date +%s)
 
@@ -155,17 +157,28 @@ h|\?) print_usage; exit ;;
 esac
 done
 
+# temp directories
+WORK_PATH="${IN_PATH}tmp/"
+LEFT_TMP="${IN_PATH}tmp/left/"
+RIGHT_TMP="${IN_PATH}tmp/right/"
+# we should check that /dev/shm isnt full!
+TIF_TMP="/dev/shm/3d_temp/"
+## debug
+echo "IN_PATH: ${IN_PATH}"
+echo "WORK_PATH: ${WORK_PATH}"
+#ls -al /dev/shm
 
 # Maybe I should count frames of both videos and use the lesser, also how to deal video sync of l/r.
-LFRAME_COUNT=$(ffprobe -select_streams v -show_streams ${LEFT_VID} 2>/dev/null | grep nb_frames | cut -d "=" -f2)
-RFRAME_COUNT=$(ffprobe -select_streams v -show_streams ${RIGHT_VID} 2>/dev/null | grep nb_frames | cut -d "=" -f2)
+LFRAME_COUNT=$(ffprobe -select_streams v -show_streams ${IN_PATH}${LEFT_VID} 2>/dev/null | grep nb_frames | cut -d "=" -f2) 
+RFRAME_COUNT=$(ffprobe -select_streams v -show_streams ${IN_PATH}${RIGHT_VID} 2>/dev/null | grep nb_frames | cut -d "=" -f2)
 
-FRAME_RATE_ORIG=$(ffprobe -select_streams v -show_streams ${LEFT_VID} 2>/dev/null | grep avg_frame_rate | cut -d "=" -f2)
+FRAME_RATE_ORIG=$(ffprobe -select_streams v -show_streams ${IN_PATH}${LEFT_VID} 2>/dev/null | grep avg_frame_rate | cut -d "=" -f2)
 # Maths to calculate real frame rate
 FRAME_RATE=$(echo "scale=2; ${FRAME_RATE_ORIG}" | bc)
 
 # Calculate ms per frame
 FRAME_MS=$(echo "scale=2; 1 / ${FRAME_RATE}" | bc)
+
 
 # Set resolutions, final output will be 1:1 made up of top bottom
 # 2:1 videos
@@ -202,6 +215,7 @@ mkdir -p ${WORK_PATH}
 mkdir ${LEFT_TMP}
 mkdir ${RIGHT_TMP}
 mkdir -p ${TIF_TMP}
+#ls -al /dev/shm
 
 ##
 ## detect any offset in the 2 videos and adjust accordingly
@@ -215,9 +229,10 @@ then
 	echo "#### Calculating video offsets #####"
 
 	# Create low sample rate waves of the 20 seconds ofr each video
-	echo "creating wav files"
-	${FFMPEG_BIN} -ss 0 -i ${LEFT_VID} -t 10 -ar 22000 -ac 1 -acodec pcm_u8 ${WORK_PATH}left-eye.wav
-	${FFMPEG_BIN} -ss 0 -i ${RIGHT_VID} -t 10 -ar 22000 -ac 1 -acodec pcm_u8 ${WORK_PATH}right-eye.wav
+	echo "creating wav files for comparing audio amplitude"
+	echo "${FFMPEG_BIN} -ss 0 -i ${IN_PATH}${LEFT_VID} -t 10 -ar 22000 -ac 1 -acodec pcm_u8 ${WORK_PATH}left-eye.wav"
+	${FFMPEG_BIN} -y -ss 0 -i ${IN_PATH}${LEFT_VID} -t 10 -ar 22000 -ac 1 -acodec pcm_u8 ${WORK_PATH}left-eye.wav || echo "Left wav creation failed"
+	${FFMPEG_BIN} -y -ss 0 -i ${IN_PATH}${RIGHT_VID} -t 10 -ar 22000 -ac 1 -acodec pcm_u8 ${WORK_PATH}right-eye.wav || echo "Right wav creation failed"
 
 	# Convert wav's to needed dat files.
 	# debug testing stuff
@@ -257,14 +272,14 @@ then
 	if [ "${NON_NEG}" == "L" ]
   	  then
 		# advance things for seeking by frame number. Seems to take way longer than ffmpeg -ss
-    	LFRAME_ADV=${FRAME_DIFF}
+    		LFRAME_ADV=${FRAME_DIFF}
 		RFRAME_ADV="0" 
 		FRAME_COUNT=$(( LFRAME_COUNT - FRAME_DIFF ))
 		# Set offset in milliseconds for use with ffmpeg -ss for only the side that need advanced
 		LVID_MS=${DIFF_MS}
 		RVID_MS="0"
 		# set the audio to the non trimmed video
-		AUDIO_SOURCE=${RIGHT_VID}
+		AUDIO_SOURCE=${IN_PATH}${RIGHT_VID}
 	elif [ "${NON_NEG}" == "R" ]
   	  then
 		# advance things for seeking by frame number. Seems to take way longer than ffmpeg -ss
@@ -275,7 +290,7 @@ then
         LVID_MS="0"
         RVID_MS=${DIFF_MS}
 	# set the audio to the non trimmed video
-	AUDIO_SOURCE=${LEFT_VID}
+	AUDIO_SOURCE=${IN_PATH}${LEFT_VID}
 	fi
 	# This should add a delay in both videos so they start after the synchronization sound.	
 	if [ ${DELAY_VID} -eq "1" ]
@@ -308,7 +323,7 @@ else
 			LVID_MS=${DIFF_MS}
                 	FRAME_COUNT=$(( LFRAME_COUNT - FRAME_DIFF ))
 		        # set the audio to the non trimmed video
-		        AUDIO_SOURCE=${RIGHT_VID}
+		        AUDIO_SOURCE=${IN_PATH}${RIGHT_VID}
 		elif [ ${EYE_ADJ} == "R" ]
 		then
                         echo "Advancing right eye frames"
@@ -318,7 +333,7 @@ else
                         RVID_MS=${DIFF_MS}
                 	FRAME_COUNT=$(( RFRAME_COUNT - FRAME_DIFF ))
 		        # set the audio to the non trimmed video
-		        AUDIO_SOURCE=${LEFT_VID}
+		        AUDIO_SOURCE=${IN_PATH}${LEFT_VID}
 		fi
 	else	
 		echo "Not synchronizing videos."
@@ -326,7 +341,7 @@ else
 		RVID_MS="0"
 		LFRAME_ADV="0"
 		LVID_MS="0"
-		AUDIO_SOURCE=${LEFT_VID}
+		AUDIO_SOURCE=${IN_PATH}${LEFT_VID}
 		DIFF_MS="0"
 		FRAME_COUNT=${LFRAME_COUNT}
 		FRAME_DIFF="0"
@@ -421,7 +436,7 @@ do
   then
   	if [ ${DEBUG} == y ]
   		then
-	      echo "Debug mode set. Exiting for pto and 1st frame manual review."
+	      echo "Debug mode set. Exiting for pto and 1st frame manual review. Look in ${WORK_PATH}"
 	      exit 0;
 	fi      
   fi
@@ -433,15 +448,11 @@ do
   echo "If we hang here type "y" and hit enter twice."
   echo "ffmpeg output was suppressed and it needs to overwrite."
 
-#  ${FFMPEG_BIN} -i ${LEFT_VID} -vf "select=eq(n\,$(( FRAME_CUR + LFRAME_ADV )))" -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif >/dev/null 2>&1
-#  ${FFMPEG_BIN} -i ${LEFT_VID} -vf "select=eq(n\,$(( FRAME_CUR + LFRAME_ADV )))" -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif
-# Try the acurate seek way, should be faster way to get to exact frame
-${FFMPEG_BIN} -accurate_seek -ss ${LVID_MS} -i ${LEFT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif >/dev/null 2>&1
-echo "${FFMPEG_BIN} -accurate_seek -ss ${LVID_MS} -i ${LEFT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif >/dev/null 2>&1"
-#  ${FFMPEG_BIN} -i ${RIGHT_VID} -vf "select=eq(n\,$(( FRAME_CUR + RFRAME_ADV )))" -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif >/dev/null 2>&1
-#  ${FFMPEG_BIN} -i ${RIGHT_VID} -vf "select=eq(n\,$(( FRAME_CUR + RFRAME_ADV )))" -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif
-${FFMPEG_BIN} -accurate_seek -ss ${RVID_MS} -i ${RIGHT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif >/dev/null 2>&1
-echo "${FFMPEG_BIN} -accurate_seek -ss ${RVID_MS} -i ${RIGHT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif >/dev/null 2>&1"
+ # Try the acurate seek way, should be faster way to get to exact frame
+${FFMPEG_BIN} -y -accurate_seek -ss ${LVID_MS} -i ${IN_PATH}${LEFT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif >/dev/null 2>&1
+echo "${FFMPEG_BIN} -accurate_seek -ss ${LVID_MS} -i ${IN_PATH}${LEFT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}left-eye.tif >/dev/null 2>&1"
+${FFMPEG_BIN} -y -accurate_seek -ss ${RVID_MS} -i ${IN_PATH}${RIGHT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif >/dev/null 2>&1
+echo "${FFMPEG_BIN} -accurate_seek -ss ${RVID_MS} -i ${IN_PATH}${RIGHT_VID} -compression_algo raw -pix_fmt rgb24 -vframes 1 ${TIF_TMP}right-eye.tif >/dev/null 2>&1"
   # if were at frame 1 call the create pto function to analize
   
   if [ "${FRAME_CUR}" -eq 0 ]
